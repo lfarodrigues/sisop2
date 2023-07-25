@@ -24,7 +24,7 @@ int port;
 int sockfd = -1, sync_socket = -1;
 int notifyfd;
 int watchfd;
-bool isSynchronized = 0;
+int isSynchronized = 0;
 
 void initializeNotifyDescription()
 {
@@ -503,6 +503,7 @@ void client_interface()
 
 		command = commandRequest(request, file);
 
+		printf("%d\n", command);
 		// verifica requisição do cliente
 		switch (command)
 		{
@@ -510,8 +511,8 @@ void client_interface()
 			case EXIT: close_connection();break;
 			case SYNC: get_all_files();break;
 			case DOWNLOAD: get_file(file);break;
-		  case UPLOAD: upload_file(file, sockfd); break;
-
+			case UPLOAD: upload_file(file, sockfd); break;
+			case DELETE : delete_file_request(file, sockfd); break;
 			default: printf("ERROR invalid command\n");
 		}
 	}while(command != EXIT);

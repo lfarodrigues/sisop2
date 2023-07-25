@@ -248,6 +248,7 @@ void listen_client(int client_socket, char *userid)
         case DOWNLOAD: send_file(clientRequest.file, client_socket, userid); break;
         case UPLOAD: receive_file(clientRequest.file, client_socket, userid); break;
         case EXIT: close_client_connection(client_socket, userid);break;
+		case DELETE : delete_file(clientRequest.file, client_socket, userid); break;
   //      default: printf("ERROR invalid command\n");
       }
   } while(clientRequest.command != EXIT);
@@ -314,6 +315,8 @@ void delete_file(char *file, int socket, char *userid)
   strcpy(path, userid);
   strcat(path, "/");
   strcat(path, file);
+
+  printf("%s\n", path);
 
   if(remove(path) != 0)
   {
