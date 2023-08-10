@@ -12,13 +12,14 @@
 #include "../include/server.h"
 
 #define KBYTE 1024
-#define DELETE 5
-#define DOWNLOADALL 6
+#define DELETE 6
+#define DOWNLOADALL 5
 #define EXIT 4
 #define SYNC 3
 #define LIST 2
 #define DOWNLOAD 1
 #define UPLOAD 0
+
 
 void newList(struct client_list *client_list);
 void insertList(struct client_list **client_list, struct client client);
@@ -30,7 +31,7 @@ void getFilename(char *pathname, char *filename);
 time_t getFileModifiedTime(char *path);
 int exists(const char *fname);
 
-char commands[6][13] = {"upload", "download", "list", "get_sync_dir", "exit", "delete"};
+char commands[5][13] = {"upload", "download", "list", "get_sync_dir", "exit"};
 
 void newList(struct client_list *client_list)
 {
@@ -116,9 +117,6 @@ int commandRequest(char *request, char *file)
 	requestAux = strtok(request, " ");
 	//if (requestAux != NULL)
 	//puts("AAA");
-
-	printf("%s\n", requestAux);
-
 	fileAux = strtok(NULL, "\n");
 	if (fileAux != NULL)
 		strcpy(file, fileAux);
@@ -131,8 +129,6 @@ int commandRequest(char *request, char *file)
 			return DOWNLOAD;
 		else if (!strcmp(requestAux, commands[UPLOAD]))
 			return UPLOAD;
-		else if (!strcmp(requestAux, commands[DELETE]))
-			return DELETE;
 	}
 	else
 		return -1;

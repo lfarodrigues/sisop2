@@ -14,8 +14,8 @@
 #include <sys/types.h>
 #include <sys/inotify.h>
 #include <pwd.h>
-#include "../include/client.h"
-#include "../include/util.h"
+#include "../include/dropboxClient.h"
+#include "../include/dropboxUtil.h"
 
 char userid[MAXNAME];
 char directory[MAXNAME + 50];
@@ -24,7 +24,6 @@ int port;
 int sockfd = -1, sync_socket = -1;
 int notifyfd;
 int watchfd;
-int isSynchronized = 0;
 
 void initializeNotifyDescription()
 {
@@ -172,57 +171,6 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-// lê arquivos recebidos do servidor no socket de sync_sock
-void *receiver_thread()
-{
-	int byteCount, bytesLeft, fileSize;
-	struct client_request clientRequest;
-	FILE* ptrfile;
-	char dataBuffer[KBYTE];
-	char file[MAXNAME];
-	while(1){
-		if (!isSynchronized){
-			byteCount = read(sync_socket, &fileSize, sizeof(fileSize)); // bloqueia thread aguardando o recebimento
-			byteCount = read(sync_socket, file, sizeof(file));
-			if (byteCount < 0)
-				printf("Error receiving filesize\n");
-
-			if (fileSize < 0)
-			{
-				printf("The file doesn't exist\n\n\n");
-				return;
-			}
-			// cria arquivo no diretório do cliente
-			ptrfile = fopen(file, "wb");
-
-			// número de bytes que faltam ser lidos
-			bytesLeft = fileSize;
-
-			while(bytesLeft > 0)
-			{
-				// lê 1kbyte de dados do arquivo do servidor
-				byteCount = read(sync_socket, dataBuffer, KBYTE);
-
-				// escreve no arquivo do cliente os bytes lidos do servidor
-				if(bytesLeft > KBYTE)
-				{
-					byteCount = fwrite(dataBuffer, KBYTE, 1, ptrfile);
-				}
-				else
-				{
-					fwrite(dataBuffer, bytesLeft, 1, ptrfile);
-				}
-				// decrementa os bytes lidos
-				bytesLeft -= KBYTE;
-			}
-
-			fclose(ptrfile);
-			printf("File %s has been downloaded\n\n", file);
-			isSynchronized = 1;
-		}
-	}
-}
-
 void *sync_thread()
 {
 	int length, i = 0;
@@ -231,46 +179,43 @@ void *sync_thread()
 
 	create_sync_sock();
 	get_all_files();
-	
+
 	while(1)
 	{
-		if (isSynchronized){
-		  length = read( notifyfd, buffer, BUF_LEN );
+	  length = read( notifyfd, buffer, BUF_LEN );
 
-		  if ( length < 0 ) {
-			perror( "read" );
-		  }
+	  if ( length < 0 ) {
+	    perror( "read" );
+	  }
 
-		  while ( i < length ) {
-			struct inotify_event *event = ( struct inotify_event * ) &buffer[ i ];
-			if ( event->len ) {
-					if ( event->mask & IN_CLOSE_WRITE || event->mask & IN_CREATE || event->mask & IN_MOVED_TO) {
-						strcpy(path, directory);
-						strcat(path, "/");
-						strcat(path, event->name);
-						if(exists(path) && (event->name[0] != '.'))
-						{
-							upload_file(path, sync_socket);
-						}
-					}
-					else if (event->mask & IN_DELETE || event->mask & IN_MOVED_FROM)
+	  while ( i < length ) {
+	    struct inotify_event *event = ( struct inotify_event * ) &buffer[ i ];
+	    if ( event->len ) {
+				if ( event->mask & IN_CLOSE_WRITE || event->mask & IN_CREATE || event->mask & IN_MOVED_TO) {
+					strcpy(path, directory);
+					strcat(path, "/");
+					strcat(path, event->name);
+					if(exists(path) && (event->name[0] != '.'))
 					{
-						strcpy(path, directory);
-						strcat(path, "/");
-						strcat(path, event->name);
-						if(event->name[0] != '.')
-						{
-							delete_file_request(path, sync_socket);
-						}
+						upload_file(path, sync_socket);
 					}
-			}
-			i += EVENT_SIZE + event->len;
-			}
-			i = 0;
-			
-			isSynchronized = 0;
-			sleep(10);
-		}
+				}
+				else if (event->mask & IN_DELETE || event->mask & IN_MOVED_FROM)
+				{
+					strcpy(path, directory);
+					strcat(path, "/");
+					strcat(path, event->name);
+					if(event->name[0] != '.')
+					{
+						delete_file_request(path, sync_socket);
+					}
+				}
+	    }
+	    i += EVENT_SIZE + event->len;
+  	}
+		i = 0;
+
+		sleep(10);
 	}
 }
 
@@ -429,7 +374,6 @@ void get_file(char *file)
 	printf("File %s has been downloaded\n\n", file);
 }
 
-
 void delete_file_request(char* file, int socket)
 {
 	int byteCount;
@@ -503,7 +447,6 @@ void client_interface()
 
 		command = commandRequest(request, file);
 
-		printf("%d\n", command);
 		// verifica requisição do cliente
 		switch (command)
 		{
@@ -511,8 +454,8 @@ void client_interface()
 			case EXIT: close_connection();break;
 			case SYNC: get_all_files();break;
 			case DOWNLOAD: get_file(file);break;
-			case UPLOAD: upload_file(file, sockfd); break;
-			case DELETE : delete_file_request(file, sockfd); break;
+		  case UPLOAD: upload_file(file, sockfd); break;
+
 			default: printf("ERROR invalid command\n");
 		}
 	}while(command != EXIT);

@@ -13,7 +13,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "../include/util.h"
+#include "../include/dropboxUtil.h"
 
 #define PORT 4000
 
@@ -174,18 +174,10 @@ void listen_sync(int client_socket, char *userid)
 
       switch (clientRequest.command)
       {
-        case UPLOAD: 
-			receive_file(clientRequest.file, client_socket, userid); 
-			send_to_all_devices(clientRequest.file, client_socket, userid);
-			break;
-	   case DOWNLOADALL: 
-			send_all_files(client_socket, userid); 
-			break;
-        case DELETE: 
-			delete_file(clientRequest.file, client_socket, userid);
-			break;
-        case EXIT: 
-			;break;
+        case UPLOAD: receive_file(clientRequest.file, client_socket, userid); break;
+        case DOWNLOADALL: send_all_files(client_socket, userid); break;
+        case DELETE: delete_file(clientRequest.file, client_socket, userid);
+        case EXIT: ;break;
         default: break;
       }
   } while(clientRequest.command != EXIT);
@@ -248,7 +240,6 @@ void listen_client(int client_socket, char *userid)
         case DOWNLOAD: send_file(clientRequest.file, client_socket, userid); break;
         case UPLOAD: receive_file(clientRequest.file, client_socket, userid); break;
         case EXIT: close_client_connection(client_socket, userid);break;
-		case DELETE : delete_file(clientRequest.file, client_socket, userid); break;
   //      default: printf("ERROR invalid command\n");
       }
   } while(clientRequest.command != EXIT);
@@ -499,20 +490,6 @@ void send_file(char *file, int socket, char *userid)
     byteCount = write(socket, &fileSize, sizeof(fileSize));
   }
 }
-
-void send_to_all_devices(char* filename, int client_socket, char *userid){
-	struct client_list *client_node;
-	if(findNode(userid, client_list, &client_node)){	
-		for(int i = 0; i < MAX_DEVICES; i++){
-			if (client_node->client.devices[i] != client_socket){
-				send_file(filename, client_node->client.devices[i], userid);
-			}
-		}
-	}
-	
-	free(client_node);
-}
-
 
 void initializeClientList()
 {

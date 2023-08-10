@@ -24,13 +24,81 @@ int port;
 int sockfd = -1, sync_socket = -1;
 int notifyfd;
 int watchfd;
-int isSynchronized = 0;
 
 void initializeNotifyDescription()
 {
 	notifyfd = inotify_init();
 
 	watchfd = inotify_add_watch(notifyfd, directory, IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO);
+}
+
+void receive_files(int socket)
+{
+	int byteCount, bytesLeft, fileSize;
+	FILE *ptrfile;
+	char dataBuffer[KBYTE];
+	
+	// lê nome do arquivo do servidor
+	byteCount = read(socket, file, sizeof(file));
+	if (byteCount < 0)
+		printf("Error receiving filename\n");
+
+	strcpy(path, directory);
+	strcat(path, "/");
+	strcat(path, file);
+
+	// cria arquivo no diretório do cliente
+	ptrfile = fopen(path, "wb");
+
+	// número de bytes que faltam ser lidos
+	read(socket, &fileSize, sizeof(int));
+	bytesLeft = fileSize;
+
+	if (fileSize > 0)
+	{
+		while (bytesLeft > 0)
+		{
+			// lê 1kbyte de dados do arquivo do servidor
+			byteCount = read(socket, dataBuffer, KBYTE);
+
+			// escreve no arquivo do cliente os bytes lidos do servidor
+			if (bytesLeft > KBYTE)
+			{
+				byteCount = fwrite(dataBuffer, KBYTE, 1, ptrfile);
+			}
+			else
+			{
+				fwrite(dataBuffer, bytesLeft, 1, ptrfile);
+			}
+			// decrementa os bytes lidos
+			bytesLeft -= KBYTE;
+		}
+	}
+	else // deleção de arquivo
+	{
+
+	}
+
+	fclose(ptrfile);
+}
+
+int create_recv_thread()
+{
+	//create_recv_sock();
+	// cria thread para sincronização
+	if (pthread_create(&recv_th, NULL, recv_thread, NULL) != 0)
+	{
+		printf("ERROR creating receiver thread\n");
+		exit(EXIT_FAILURE);
+	}
+}
+
+void *recv_thread()
+{
+	while(1)
+	{
+		receive_files(sync_socket);
+	}
 }
 
 int create_sync_sock()
@@ -45,8 +113,8 @@ int create_sync_sock()
 
 	if (server == NULL)
 	{
-  	return -1;
-  }
+		return -1;
+	}
 
 	// tenta abrir o socket
 	if ((sync_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
@@ -62,9 +130,9 @@ int create_sync_sock()
 	bzero(&(server_addr.sin_zero), 8);
 
 	// tenta conectar ao socket
-	if (connect(sync_socket,(struct sockaddr *) &server_addr,sizeof(server_addr)) < 0)
+	if (connect(sync_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
 	{
-		  return -1;
+		return -1;
 	}
 
 	write(sync_socket, &client_thread, sizeof(client_thread));
@@ -73,7 +141,7 @@ int create_sync_sock()
 	byteCount = write(sync_socket, userid, sizeof(userid));
 }
 
-int connect_server (char *host, int port)
+int connect_server(char *host, int port)
 {
 	int byteCount, connected;
 	struct sockaddr_in server_addr;
@@ -85,9 +153,9 @@ int connect_server (char *host, int port)
 
 	if (server == NULL)
 	{
-  	printf("ERROR, no such host\n");
-  	return -1;
-  }
+		printf("ERROR, no such host\n");
+		return -1;
+	}
 
 	// tenta abrir o socket
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
@@ -104,10 +172,10 @@ int connect_server (char *host, int port)
 	bzero(&(server_addr.sin_zero), 8);
 
 	// tenta conectar ao socket
-	if (connect(sockfd,(struct sockaddr *) &server_addr,sizeof(server_addr)) < 0)
+	if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
 	{
-  		printf("ERROR connecting\n");
-		  return -1;
+		printf("ERROR connecting\n");
+		return -1;
 	}
 
 	write(sockfd, &client_thread, sizeof(client_thread));
@@ -154,7 +222,7 @@ int main(int argc, char *argv[])
 		strcpy(userid, argv[1]);
 
 	// segundo argumento host
-	host = (char*)malloc(sizeof(argv[2]));
+	host = (char *)malloc(sizeof(argv[2]));
 	strcpy(host, argv[2]);
 
 	// terceiro argumento porta
@@ -166,111 +234,63 @@ int main(int argc, char *argv[])
 		// sincroniza diretório do servidor com o do cliente
 		sync_client_first();
 
+		create_recv_thread();
+
 		// espera por um comando de usuário
 		client_interface();
 	}
 	return 0;
 }
 
-// lê arquivos recebidos do servidor no socket de sync_sock
-void *receiver_thread()
-{
-	int byteCount, bytesLeft, fileSize;
-	struct client_request clientRequest;
-	FILE* ptrfile;
-	char dataBuffer[KBYTE];
-	char file[MAXNAME];
-	while(1){
-		if (!isSynchronized){
-			byteCount = read(sync_socket, &fileSize, sizeof(fileSize)); // bloqueia thread aguardando o recebimento
-			byteCount = read(sync_socket, file, sizeof(file));
-			if (byteCount < 0)
-				printf("Error receiving filesize\n");
-
-			if (fileSize < 0)
-			{
-				printf("The file doesn't exist\n\n\n");
-				return;
-			}
-			// cria arquivo no diretório do cliente
-			ptrfile = fopen(file, "wb");
-
-			// número de bytes que faltam ser lidos
-			bytesLeft = fileSize;
-
-			while(bytesLeft > 0)
-			{
-				// lê 1kbyte de dados do arquivo do servidor
-				byteCount = read(sync_socket, dataBuffer, KBYTE);
-
-				// escreve no arquivo do cliente os bytes lidos do servidor
-				if(bytesLeft > KBYTE)
-				{
-					byteCount = fwrite(dataBuffer, KBYTE, 1, ptrfile);
-				}
-				else
-				{
-					fwrite(dataBuffer, bytesLeft, 1, ptrfile);
-				}
-				// decrementa os bytes lidos
-				bytesLeft -= KBYTE;
-			}
-
-			fclose(ptrfile);
-			printf("File %s has been downloaded\n\n", file);
-			isSynchronized = 1;
-		}
-	}
-}
-
 void *sync_thread()
 {
 	int length, i = 0;
-  char buffer[BUF_LEN];
+	char buffer[BUF_LEN];
 	char path[200];
 
 	create_sync_sock();
 	get_all_files();
-	
-	while(1)
+
+	while (1)
 	{
-		if (isSynchronized){
-		  length = read( notifyfd, buffer, BUF_LEN );
+		length = read(notifyfd, buffer, BUF_LEN);
 
-		  if ( length < 0 ) {
-			perror( "read" );
-		  }
+		if (length < 0)
+		{
+			perror("read");
+		}
 
-		  while ( i < length ) {
-			struct inotify_event *event = ( struct inotify_event * ) &buffer[ i ];
-			if ( event->len ) {
-					if ( event->mask & IN_CLOSE_WRITE || event->mask & IN_CREATE || event->mask & IN_MOVED_TO) {
-						strcpy(path, directory);
-						strcat(path, "/");
-						strcat(path, event->name);
-						if(exists(path) && (event->name[0] != '.'))
-						{
-							upload_file(path, sync_socket);
-						}
-					}
-					else if (event->mask & IN_DELETE || event->mask & IN_MOVED_FROM)
+		while (i < length)
+		{
+			struct inotify_event *event = (struct inotify_event *)&buffer[i];
+			if (event->len)
+			{
+				if (event->mask & IN_CLOSE_WRITE || event->mask & IN_CREATE || event->mask & IN_MOVED_TO)
+				{
+					strcpy(path, directory);
+					strcat(path, "/");
+					strcat(path, event->name);
+					if (exists(path) && (event->name[0] != '.'))
 					{
-						strcpy(path, directory);
-						strcat(path, "/");
-						strcat(path, event->name);
-						if(event->name[0] != '.')
-						{
-							delete_file_request(path, sync_socket);
-						}
+						upload_file(path, sync_socket);
 					}
+				}
+				else if (event->mask & IN_DELETE || event->mask & IN_MOVED_FROM)
+				{
+					strcpy(path, directory);
+					strcat(path, "/");
+					strcat(path, event->name);
+					if (event->name[0] != '.')
+					{
+						delete_file_request(path, sync_socket);
+					}
+				}
 			}
 			i += EVENT_SIZE + event->len;
-			}
-			i = 0;
-			
-			isSynchronized = 0;
-			sleep(10);
 		}
+		i = 0;
+
+		sleep(10);
 	}
 }
 
@@ -282,8 +302,8 @@ void sync_client_first()
 
 	if ((homedir = getenv("HOME")) == NULL)
 	{
-    homedir = getpwuid(getuid())->pw_dir;
-  }
+		homedir = getpwuid(getuid())->pw_dir;
+	}
 	// nome do arquivo
 	strcat(fileName, userid);
 
@@ -306,8 +326,8 @@ void sync_client_first()
 
 	initializeNotifyDescription();
 
-	//cria thread para sincronização
-	if(pthread_create(&syn_th, NULL, sync_thread, NULL) != 0)
+	// cria thread para sincronização
+	if (pthread_create(&syn_th, NULL, sync_thread, NULL) != 0)
 	{
 		printf("ERROR creating thread\n");
 		exit(EXIT_FAILURE);
@@ -318,7 +338,7 @@ void get_all_files()
 {
 	int byteCount, bytesLeft, fileSize, fileNum, i;
 	struct client_request clientRequest;
-	FILE* ptrfile;
+	FILE *ptrfile;
 	char dataBuffer[KBYTE], file[MAXNAME], path[KBYTE];
 
 	// copia nome do arquivo e comando para enviar para o servidor
@@ -331,47 +351,9 @@ void get_all_files()
 
 	byteCount = read(sync_socket, &fileNum, sizeof(fileNum));
 
-	for(i = 0; i < fileNum; i++)
+	for (i = 0; i < fileNum; i++)
 	{
-		// lê nome do arquivo do servidor
-		byteCount = read(sync_socket, file, sizeof(file));
-		if (byteCount < 0)
-			printf("Error receiving filename\n");
-
-		strcpy(path, directory);
-		strcat(path, "/");
-		strcat(path, file);
-
-		// cria arquivo no diretório do cliente
-		ptrfile = fopen(path, "wb");
-
-		read(sync_socket, &fileSize, sizeof(int));
-
-		// número de bytes que faltam ser lidos
-		bytesLeft = fileSize;
-
-		if (fileSize > 0)
-		{
-			while(bytesLeft > 0)
-			{
-				// lê 1kbyte de dados do arquivo do servidor
-				byteCount = read(sync_socket, dataBuffer, KBYTE);
-
-				// escreve no arquivo do cliente os bytes lidos do servidor
-				if(bytesLeft > KBYTE)
-				{
-					byteCount = fwrite(dataBuffer, KBYTE, 1, ptrfile);
-				}
-				else
-				{
-					fwrite(dataBuffer, bytesLeft, 1, ptrfile);
-				}
-				// decrementa os bytes lidos
-				bytesLeft -= KBYTE;
-			}
-		}
-
-		fclose(ptrfile);
+		receive_files(sync_socket)
 	}
 }
 
@@ -379,8 +361,9 @@ void get_file(char *file)
 {
 	int byteCount, bytesLeft, fileSize;
 	struct client_request clientRequest;
-	FILE* ptrfile;
+	FILE *ptrfile;
 	char dataBuffer[KBYTE];
+	char fileReived[200];
 
 	// copia nome do arquivo e comando para enviar para o servidor
 	strcpy(clientRequest.file, file);
@@ -390,6 +373,15 @@ void get_file(char *file)
 	byteCount = write(sockfd, &clientRequest, sizeof(clientRequest));
 	if (byteCount < 0)
 		printf("Error sending DOWNLOAD message to server\n");
+
+	//lê nome do arquivo enviado pelo servidor
+	byteCount = read(sockfd, fileReceived, sizeof(file));
+	if (byteCount < 0)
+		printf("Error receving filename from server\n");
+	
+	if(strcmp(file, fileReceived)!=0){
+		printf("File sent by server differs from requested file\n");
+	}
 
 	// lê estrutura do arquivo que será lido do servidor
 	byteCount = read(sockfd, &fileSize, sizeof(fileSize));
@@ -407,13 +399,13 @@ void get_file(char *file)
 	// número de bytes que faltam ser lidos
 	bytesLeft = fileSize;
 
-	while(bytesLeft > 0)
+	while (bytesLeft > 0)
 	{
 		// lê 1kbyte de dados do arquivo do servidor
 		byteCount = read(sockfd, dataBuffer, KBYTE);
 
 		// escreve no arquivo do cliente os bytes lidos do servidor
-		if(bytesLeft > KBYTE)
+		if (bytesLeft > KBYTE)
 		{
 			byteCount = fwrite(dataBuffer, KBYTE, 1, ptrfile);
 		}
@@ -429,8 +421,7 @@ void get_file(char *file)
 	printf("File %s has been downloaded\n\n", file);
 }
 
-
-void delete_file_request(char* file, int socket)
+void delete_file_request(char *file, int socket)
 {
 	int byteCount;
 	struct client_request clientRequest;
@@ -447,40 +438,40 @@ void delete_file_request(char* file, int socket)
 void upload_file(char *file, int socket)
 {
 	int byteCount, fileSize;
-	FILE* ptrfile;
+	FILE *ptrfile;
 	char dataBuffer[KBYTE];
 	struct client_request clientRequest;
 
 	if (ptrfile = fopen(file, "rb"))
 	{
-			getFilename(file, clientRequest.file);
-			clientRequest.command = UPLOAD;
+		getFilename(file, clientRequest.file);
+		clientRequest.command = UPLOAD;
 
-			byteCount = write(socket, &clientRequest, sizeof(clientRequest));
+		byteCount = write(socket, &clientRequest, sizeof(clientRequest));
 
-			fileSize = getFileSize(ptrfile);
+		fileSize = getFileSize(ptrfile);
 
-			// escreve número de bytes do arquivo
-			byteCount = write(socket, &fileSize, sizeof(fileSize));
+		// escreve número de bytes do arquivo
+		byteCount = write(socket, &fileSize, sizeof(fileSize));
 
-			if (fileSize == 0)
-			{
-				fclose(ptrfile);
-				return;
-			}
-
-			while(!feof(ptrfile))
-			{
-					fread(dataBuffer, sizeof(dataBuffer), 1, ptrfile);
-
-					byteCount = write(socket, dataBuffer, KBYTE);
-					if(byteCount < 0)
-						printf("ERROR sending file\n");
-			}
+		if (fileSize == 0)
+		{
 			fclose(ptrfile);
+			return;
+		}
 
-			if (socket != sync_socket)
-				printf("the file has been uploaded\n");
+		while (!feof(ptrfile))
+		{
+			fread(dataBuffer, sizeof(dataBuffer), 1, ptrfile);
+
+			byteCount = write(socket, dataBuffer, KBYTE);
+			if (byteCount < 0)
+				printf("ERROR sending file\n");
+		}
+		fclose(ptrfile);
+
+		if (socket != sync_socket)
+			printf("the file has been uploaded\n");
 	}
 	// arquivo não existe
 	else
@@ -503,19 +494,29 @@ void client_interface()
 
 		command = commandRequest(request, file);
 
-		printf("%d", command);
 		// verifica requisição do cliente
 		switch (command)
 		{
-			case LIST: show_files(); break;
-			case EXIT: close_connection();break;
-			case SYNC: get_all_files();break;
-			case DOWNLOAD: get_file(file);break;
-			case UPLOAD: upload_file(file, sockfd); break;
-			case DELETE : delete_file_request(file, sockfd); break;
-			default: printf("ERROR invalid command\n");
+		case LIST:
+			show_files();
+			break;
+		case EXIT:
+			close_connection();
+			break;
+		case SYNC:
+			get_all_files();
+			break;
+		case DOWNLOAD:
+			get_file(file);
+			break;
+		case UPLOAD:
+			upload_file(file, sockfd);
+			break;
+
+		default:
+			printf("ERROR invalid command\n");
 		}
-	}while(command != EXIT);
+	} while (command != EXIT);
 }
 
 void show_files()
